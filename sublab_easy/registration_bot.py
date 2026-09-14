@@ -70,7 +70,7 @@ def openrouter_client() -> OpenAI:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set. Copy .env.example to .env.")
-    # TODO: return an OpenAI client whose base_url is OPENROUTER_BASE_URL
+    return OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL)
     raise NotImplementedError
 
 
@@ -107,7 +107,45 @@ def build_system_prompt(catalogue: dict) -> str:
     Returns:
         The system prompt, as a single string.
     """
-    # TODO
+    lines = []
+    lines.append("You are the course registrar for Narxoz University, term "
+                  + catalogue["term"] + ".")
+    lines.append("")
+    lines.append("STUDENT")
+    student = catalogue["student"]
+    lines.append(f"- ID: {student['student_id']}, year {student['year']}, "
+                  f"programme: {student['programme']}")
+    lines.append(f"- Already completed: {', '.join(student['completed'])}")
+    lines.append("")
+    lines.append("REGISTRATION RULES")
+    rules = catalogue["rules"]
+    lines.append(f"- Credit limit per term: min {rules['min_credits']}, "
+                  f"max {rules['max_credits']}.")
+    lines.append(f"- {rules['note']}")
+    lines.append("")
+    lines.append("COURSE CATALOGUE (the only courses that exist)")
+    for c in catalogue["courses"]:
+        seats_left = c["seats_total"] - c["seats_taken"]
+        schedule_str = "; ".join(
+            f"{s['day']} {s['start']}-{s['end']}" for s in c["schedule"]
+        )
+        prereqs = ", ".join(c["prerequisites"]) if c["prerequisites"] else "none"
+        lines.append(
+            f"- {c['code']} \"{c['title']}\" | {c['credits']} credits | "
+            f"prerequisites: {prereqs} | schedule: {schedule_str} | "
+            f"seats: {c['seats_taken']}/{c['seats_total']} "
+            f"({seats_left} left) | instructor: {c['instructor']}"
+        )
+    lines.append("")
+    lines.append("STRICT RULE")
+    lines.append(
+        "The list above is the COMPLETE and ONLY set of courses that exist. "
+        "If a student asks about any course code or title not in this list, "
+        "you MUST refuse and say it does not exist in the catalogue. "
+        "NEVER invent a course, its credits, its schedule, or its instructor. "
+        "Do not guess or assume — if it is not listed above, it does not exist."
+    )
+    return "\n".join(lines)
     raise NotImplementedError
 
 
@@ -117,6 +155,17 @@ def build_system_prompt(catalogue: dict) -> str:
 
 def chat(messages: list[dict], model: str = "gpt-5.6-luna",
          via: str = "openai") -> dict:
+    client = client_for(via)
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+    )
+    return {
+        "text": response.choices[0].message.content,
+        "input_tokens": response.usage.prompt_tokens,
+        "output_tokens": response.usage.completion_tokens,
+        "model": model,
+    }
     """Send a whole message list and return the reply plus token usage.
 
     `messages` is the OpenAI format: a list of {"role": ..., "content": ...},
@@ -130,9 +179,6 @@ def chat(messages: list[dict], model: str = "gpt-5.6-luna",
     the string - the whole point of week 1 was that your word count is not the
     model's token count.
     """
-    # TODO: client_for(via).chat.completions.create(...), then pull the text
-    #       out of .choices and the counts out of .usage.
-    raise NotImplementedError
 
 
 def ask_once(prompt: str, model: str = "gpt-5.6-luna",
@@ -174,6 +220,7 @@ def run_turn(history: list[dict], user_text: str, model: str = "gpt-5.6-luna",
 
 def estimate_cost(input_tokens: int, output_tokens: int,
                   rate_in: float, rate_out: float) -> float:
+    return (input_tokens / 1_000_000) * rate_in + (output_tokens / 1_000_000) * rate_out
     """Dollar cost of one call.
 
     `rate_in` and `rate_out` are dollars per MILLION tokens.
@@ -183,8 +230,6 @@ def estimate_cost(input_tokens: int, output_tokens: int,
     >>> estimate_cost(0, 0, 5.0, 30.0)
     0.0
     """
-    # TODO
-    raise NotImplementedError
 
 
 def cost_of(usage: dict) -> float:
@@ -195,6 +240,7 @@ def cost_of(usage: dict) -> float:
 
 
 def conversation_cost(usages: list[dict]) -> float:
+    return sum(cost_of(u) for u in usages)
     """What the whole conversation cost: the sum of every turn.
 
     `usages` is the list of dicts `run_turn` handed back, in order.
@@ -202,8 +248,6 @@ def conversation_cost(usages: list[dict]) -> float:
     >>> conversation_cost([])
     0.0
     """
-    # TODO
-    raise NotImplementedError
 
 
 # --------------------------------------------------------------------------
@@ -217,7 +261,7 @@ SCRIPT = [
     "Register me for CSS-4007 and CSS-4102.",
     "How many credits would that be in total, and am I within the limit?",
     "Add CSS-4090 Quantum Machine Learning to my schedule.",
-    "TODO: turn 1 again, written in Kazakh or Russian",
+    "Какой список доступных курсов для студента 3 курса сейчас?",
 ]
 
 

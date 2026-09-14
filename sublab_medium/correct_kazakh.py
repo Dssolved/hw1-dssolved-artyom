@@ -49,7 +49,17 @@ def build_prompt(corrupted: str) -> str:
     Asking for a fixed shape instead of prose is how you make six models
     comparable. Week 3 turns this into a topic.
     """
-    # TODO
+    return (
+        "The following text is Kazakh. It may contain errors: letters replaced "
+        "with visually similar Russian Cyrillic letters, letters replaced with "
+        "visually similar Latin letters, a missing hyphen, two words joined "
+        "together, or a doubled letter.\n\n"
+        "Correct the text and list what you changed.\n\n"
+        "Respond with ONLY this JSON object and nothing else — no explanation, "
+        "no markdown fences:\n"
+        '{"corrected": "...", "changes": ["...", "..."]}\n\n'
+        f"Text: {corrupted}"
+    )
     raise NotImplementedError
 
 
@@ -60,7 +70,18 @@ def parse_response(text: str) -> dict:
     like. Be forgiving: find the JSON, parse it, and raise ValueError with the
     offending text if you truly cannot.
     """
-    # TODO
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError(f"No JSON object found in: {text!r}")
+    candidate = text[start:end + 1]
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Could not parse JSON from: {text!r}") from e
+    if "corrected" not in data or "changes" not in data:
+        raise ValueError(f"JSON missing required keys: {text!r}")
+    return data
     raise NotImplementedError
 
 
@@ -75,7 +96,16 @@ def correct_with(model: str, corrupted: str, via: str) -> dict:
     `ask_once` from sublab_easy - there is no conversation here, just one
     prompt and one reply, eight times per model.
     """
-    # TODO
+    prompt = build_prompt(corrupted)
+    reply = ask_once(prompt, model=model, via=via)
+    parsed = parse_response(reply["text"])
+    return {
+        "corrected": parsed["corrected"],
+        "changes": parsed["changes"],
+        "input_tokens": reply["input_tokens"],
+        "output_tokens": reply["output_tokens"],
+        "model": model,
+    }
     raise NotImplementedError
 
 
@@ -90,7 +120,10 @@ def score_correction(returned: str, expected: str) -> dict:
     the original still counts as a correction. Your written analysis is where
     you make that call.
     """
-    # TODO
+    exact = returned == expected
+    diff = sum(1 for a, b in zip(returned, expected) if a != b)
+    diff += abs(len(returned) - len(expected))
+    return {"exact": exact, "char_diff": diff}
     raise NotImplementedError
 
 
